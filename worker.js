@@ -25,6 +25,7 @@ async function processOrder(order, trx, read_client) {
 
 
     try {
+        // inserting swaps to write db
         let writing_initiator_swap = await trx.insert(initiator_swap_for_write).into('swaps_test');
         console.log("source swap inserted successfully with swap id: ", initiator_swap_for_write.swap_id);
         let writing_follower_swap = await trx.insert(follower_swap_for_write).into('swaps_test');
@@ -35,11 +36,12 @@ async function processOrder(order, trx, read_client) {
         throw error;
     }
 
-    // inserting order to write db  
+    // formating order to write db  
 
     let newOrder = getNewOrderObject(order, initiator_source_address, initiator_destination_address, source_amount, destination_amount, minimum_confirmations, timelock, input_token_price, output_token_price);
 
     try {
+        // inserting order to write db  
         // console.log("Order to be inserted: ", newOrder);
         let writing_order = await trx.insert(newOrder).into('create_orders_test');
         console.log("Order inserted successfully: with order id: ", order.id);
