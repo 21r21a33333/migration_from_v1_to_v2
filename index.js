@@ -2,26 +2,23 @@ const read_client = require('./read_connection'); //read client
 const write_client = require('./write_connection'); //write client
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const processOrder = require('./worker');
+const { write_last_migration_timestamp, get_last_migration_timestamp } = require("./helpers")
 
 
-
-function getStartDate() {
-    if (!process.env.UPDATE_AFTER) {
-        throw new Error("UPDATE_AFTER not found");
-    }
-    let start_date = process.env.UPDATE_AFTER;
-    return start_date;
-}
 
 async function MigrateDB() {
-    let update_date = getStartDate();
+    let update_date = get_last_migration_timestamp();
+    console.log("last-migration-time :", update_date);
+    const current_migration_timestamp = new Date().toISOString();
+    console.log("current time :", current_migration_timestamp);
 
     console.log("Migrating database...");
+
     try {
         // fetching all orders from read db
         let current_orders = await read_client.transaction(async trx => {
             try {
-                // TODO: consider using updated_at instead of created_at
+
                 const getOrders = `
                     select * from orders
                     where updated_at >= '${update_date}'
@@ -88,6 +85,7 @@ async function MigrateDB() {
         console.log("Error migrating database: ", e);
     }
 
+    write_last_migration_timestamp(current_migration_timestamp);
 
 }
 

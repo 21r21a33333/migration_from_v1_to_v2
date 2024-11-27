@@ -1,4 +1,5 @@
 const getBlockNumber = require('./get_block');
+const fs = require('fs');
 
 
 async function getNewSwapObject(old) {
@@ -92,4 +93,38 @@ function getNewMatchedOrder(old, initiator_swap_id, follower_swap_id) {
 }
 
 
-module.exports = { getNewSwapObject, getNewOrderObject, getNewMatchedOrder };
+
+
+function write_last_migration_timestamp(current_migration_timestamp) {
+    // writing current updated_migration timestamp to file
+    const configPath = './config.json';
+
+    let config = {};
+    if (fs.existsSync(configPath)) {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+
+    config.last_updated_at = current_migration_timestamp;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+}
+
+function get_last_migration_timestamp(current_migration_timestamp) {
+    // writing current updated_migration timestamp to file
+    const configPath = './config.json';
+    let config = {};
+    if (fs.existsSync(configPath)) {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+
+    if (config.last_updated_at) {
+        console.log(config.last_updated_at);
+        return config.last_updated_at;
+    }
+    else {
+        throw new Error("last_updated not found");
+    }
+}
+
+
+module.exports = { getNewSwapObject, getNewOrderObject, getNewMatchedOrder, write_last_migration_timestamp, get_last_migration_timestamp };
