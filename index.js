@@ -98,3 +98,14 @@ async function main() {
 }
 
 main();
+
+const interval = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
+
+setInterval(async () => {
+    try {
+        main();
+    } catch (e) {
+        console.log("Error during scheduled migration: ", e);
+    }
+}, interval);
+
