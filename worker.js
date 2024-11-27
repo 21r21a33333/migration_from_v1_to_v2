@@ -25,10 +25,20 @@ async function processOrder(order, trx, read_client) {
 
 
     try {
-        // inserting swaps to write db
-        let writing_initiator_swap = await trx.insert(initiator_swap_for_write).into('swaps_test');
+        // inserting/updating swaps to write db
+
+        // let writing_initiator_swap = await trx.insert(initiator_swap_for_write).into('swaps_test');
+        const writing_initiator_swap = await trx('swaps_test')
+            .insert(initiator_swap_for_write)
+            .onConflict('swap_id') // Specify the unique column
+            .merge(); // Merge will update conflicting rows with the new values
         console.log("source swap inserted successfully with swap id: ", initiator_swap_for_write.swap_id);
-        let writing_follower_swap = await trx.insert(follower_swap_for_write).into('swaps_test');
+
+        // let writing_follower_swap = await trx.insert(follower_swap_for_write).into('swaps_test');
+        const writing_follower_swap = await trx('swaps_test')
+            .insert(follower_swap_for_write)
+            .onConflict('swap_id') // Specify the unique column
+            .merge(); // Merge will update conflicting rows with the new values
         console.log("destination swap inserted successfully with swap id: ", follower_swap_for_write.swap_id);
 
     } catch (error) {
@@ -41,7 +51,11 @@ async function processOrder(order, trx, read_client) {
 
     try {
         // inserting order to write db  
-        let writing_order = await trx.insert(newOrder).into('create_orders_test');
+        // let writing_order = await trx.insert(newOrder).into('create_orders_test');
+        const writing_order = await trx('create_orders_test')
+            .insert(newOrder)
+            .onConflict('create_id') // Specify the unique column
+            .merge(); // Merge will update conflicting rows with the new values
         console.log("Order inserted successfully: with order id: ", order.id);
     }
     catch (error) {
@@ -55,7 +69,11 @@ async function processOrder(order, trx, read_client) {
 
     try {
         // inserting matched order to write db
-        let writing_matched_order = await trx.insert(NewMatchedOrder).into('matched_orders_test');
+        // let writing_matched_order = await trx.insert(NewMatchedOrder).into('matched_orders_test');
+        let writing_matched_order = await trx('matched_orders_test')
+            .insert(NewMatchedOrder)
+            .onConflict('create_order_id') // Specify the unique column
+            .merge(); // Merge will update conflicting rows with the new values
         console.log("Matched Order with id ", order.id, " inserted successfully: ");
     }
     catch (error) {

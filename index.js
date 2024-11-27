@@ -14,16 +14,17 @@ function getStartDate() {
 }
 
 async function MigrateDB() {
-    let start_date = getStartDate();
+    let update_date = getStartDate();
 
     console.log("Migrating database...");
     try {
         // fetching all orders from read db
         let current_orders = await read_client.transaction(async trx => {
             try {
+                // TODO: consider using updated_at instead of created_at
                 const getOrders = `
                     select * from orders
-                    where created_at >= '${start_date}'
+                    where updated_at >= '${update_date}'
                     order by id 
                 `;
                 const orderResults = await trx.raw(getOrders);
