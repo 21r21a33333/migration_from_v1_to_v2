@@ -2,6 +2,19 @@ const getBlockNumber = require('./get_block');
 const fs = require('fs');
 
 
+// TODO - UPDATE THIS WITH THE LATEST CHAIN NAMES
+function getLatestChainName(oldChainName) {
+    // create a map of chain names to their latest chain names
+    const chainMap = {
+        "ethereum_arbitrum": "arbitrum",
+    };
+
+    if (oldChainName in chainMap) {
+        return chainMap[oldChainName];
+    }
+    return oldChainName; // return the original name if not found in the map
+}
+
 async function getNewSwapObject(old) {
 
     let newSwaps = {
@@ -9,7 +22,7 @@ async function getNewSwapObject(old) {
         updated_at: old.updated_at || null,
         deleted_at: old.deleted_at || null,
         swap_id: old.id || null, // ensure null if id is not available
-        chain: old.chain || "", // empty string for chain if undefined
+        chain: getLatestChainName(old.chain) || "", // empty string for chain if undefined
         asset: old.asset || "", // empty string for asset if undefined
         initiator: old.initiator_address || "", // empty string for initiator if undefined
         redeemer: old.redeemer_address || "", // empty string for redeemer if undefined
@@ -22,7 +35,9 @@ async function getNewSwapObject(old) {
         redeem_tx_hash: old.redeem_tx_hash || "", // empty string if not defined
         refund_tx_hash: old.refund_tx_hash || "", // empty string if not defined
         initiate_block_number: old.initiate_block_number || 0, // default to 0 if not defined
-        required_confirmations: old.minimum_confirmations || 0 // default to 0 if not defined
+        required_confirmations: old.minimum_confirmations || 0,// default to 0 if not defined
+        current_confirmations: old.current_confirmations || 0, // default to 0 if not defined
+        
     };
 
     // Assign redeem and refund block numbers if the respective transaction hashes are available
@@ -33,6 +48,19 @@ async function getNewSwapObject(old) {
     if (newSwaps.refund_block_number == "Chain or asset not supported!") newSwaps.refund_block_number = 0;
 
     return newSwaps;
+}
+
+
+
+function getUserIdFrom(initiator_source_address, initiator_destination_address) {
+        const ethAddressRegex = /^0x[a-fA-F0-9]{40}$/;
+        if (ethAddressRegex.test(initiator_source_address)) {
+            return initiator_source_address;
+        } else if (ethAddressRegex.test(initiator_destination_address)) {
+            return initiator_destination_address;
+        } else {
+            return ""; // Return empty string if no valid Ethereum address is found
+        }
 }
 
 
@@ -53,8 +81,8 @@ function getNewOrderObject(old, initiator_source_address, initiator_destination_
         match_attempted_at: null, // Ensure this can be null
         create_id: old.id || "", // Default to empty string if undefined
         block_number: 0, // Default to 0 if not defined
-        source_chain: sourcechain || "", // Empty string if undefined
-        destination_chain: destinationchain || "", // Empty string if undefined
+        source_chain: getLatestChainName(sourcechain) || "", // Empty string if undefined
+        destination_chain: getLatestChainName(destinationchain) || "", // Empty string if undefined
         source_asset: sourceasset || "", // Empty string if undefined
         destination_asset: destinationasset || "", // Empty string if undefined
         initiator_source_address: initiator_source_address || "",  // Empty string if undefined
@@ -70,7 +98,8 @@ function getNewOrderObject(old, initiator_source_address, initiator_destination_
         timelock: timelock || 0, // Default to 0 if undefined
 
         secret_hash: old.secret_hash || "", // Empty string if undefined
-        additional_data: JSON.stringify({ "input_token_price": input_token_price, "output_token_price": output_token_price }) || "{}" // Empty string if undefined
+        additional_data: JSON.stringify({ "input_token_price": input_token_price, "output_token_price": output_token_price }) || "{}", // Empty string if undefined
+        user_id: getUserIdFrom(initiator_source_address,initiator_destination_address) || "", // Empty string if undefined
     };
 
     // console.log("New Order Object: ", newOrder);

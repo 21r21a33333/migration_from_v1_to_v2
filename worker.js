@@ -1,12 +1,21 @@
 
 const { getNewSwapObject, getNewOrderObject, getNewMatchedOrder } = require('./helpers');
 
+function isMainNetChain(chain) {
+    // if chain contains "testnet" or "sepolia"
+    if (chain.toLowerCase().includes("testnet") || chain.toLowerCase().includes("sepolia")) {
+        return false;
+    }
+    return true;
+}
+
+
 async function processOrder(order, trx, read_client) {
+    // wait a  second before processing the order
+    await new Promise(resolve => setTimeout(resolve, 500));
     console.log(" procecssing Order with order Id ----: ", order.id);
     // creating a transaction to get the source and destination swaps
     let [initiator_swap_for_write, follower_swap_for_write, initiator_source_address, initiator_destination_address, source_amount, destination_amount, minimum_confirmations, timelock, input_token_price, output_token_price] = await read_client.transaction(async readtrx => {
-
-
         // fetching source and destination swaps from read db
         let intitiator_swap = await readtrx.raw(`select * from atomic_swaps where id = ${order.initiator_atomic_swap_id}`);
         let follower_swap = await readtrx.raw(`select * from atomic_swaps where id = ${order.follower_atomic_swap_id}`);
@@ -27,15 +36,19 @@ async function processOrder(order, trx, read_client) {
     try {
         // inserting/updating swaps to write db
 
+        if( !isMainNetChain(initiator_swap_for_write.chain) || !isMainNetChain(follower_swap_for_write.chain) ){
+            console.log("Skipping order with id: ", order.id, " as it is not on mainnet chain. ");
+            return;
+        }
         // let writing_initiator_swap = await trx.insert(initiator_swap_for_write).into('swaps_test');
-        const writing_initiator_swap = await trx('swaps_test')
+        const writing_initiator_swap = await trx('swaps')
             .insert(initiator_swap_for_write)
             .onConflict('swap_id') // Specify the unique column
             .merge(); // Merge will update conflicting rows with the new values
         console.log("source swap inserted successfully with swap id: ", initiator_swap_for_write.swap_id);
 
         // let writing_follower_swap = await trx.insert(follower_swap_for_write).into('swaps_test');
-        const writing_follower_swap = await trx('swaps_test')
+        const writing_follower_swap = await trx('swaps')
             .insert(follower_swap_for_write)
             .onConflict('swap_id') // Specify the unique column
             .merge(); // Merge will update conflicting rows with the new values
@@ -52,7 +65,7 @@ async function processOrder(order, trx, read_client) {
     try {
         // inserting order to write db  
         // let writing_order = await trx.insert(newOrder).into('create_orders_test');
-        const writing_order = await trx('create_orders_test')
+        const writing_order = await trx('create_orders')
             .insert(newOrder)
             .onConflict('create_id') // Specify the unique column
             .merge(); // Merge will update conflicting rows with the new values
@@ -70,10 +83,8 @@ async function processOrder(order, trx, read_client) {
     try {
         // inserting matched order to write db
         // let writing_matched_order = await trx.insert(NewMatchedOrder).into('matched_orders_test');
-        let writing_matched_order = await trx('matched_orders_test')
-            .insert(NewMatchedOrder)
-            .onConflict('create_order_id') // Specify the unique column
-            .merge(); // Merge will update conflicting rows with the new values
+        let writing_matched_order = await trx('matched_orders')
+            .insert(NewMatchedOrder);
         console.log("Matched Order with id ", order.id, " inserted successfully: ");
     }
     catch (error) {

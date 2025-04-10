@@ -1,4 +1,5 @@
 const fs = require('fs');
+const fetch = require("node-fetch");
 
 function getAlchemyKey() {
     if (!process.env.ALCHEMY_API_KEY) {
@@ -9,31 +10,40 @@ function getAlchemyKey() {
 
 
 async function getBlockNumber(chain, asset, txid) {
-
     console.log("Chain:", chain, "Asset:", asset, "TxID:", txid);
     let url;
     let blockNumber;
 
+    const retryFetch = async (fetchFn, retries = 5) => {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                return await fetchFn();
+            } catch (error) {
+                if (attempt === retries) {
+                    throw error;
+                }
+                console.warn(`Attempt ${attempt} failed. Retrying...`);
+            }
+        }
+    };
+
     // Check if it's Bitcoin or Bitcoin Testnet
     if (chain === "bitcoin") {
-        // Bitcoin Mainnet
         url = `https://mempool.space/api/tx/${txid}`;
     } else if (chain === "bitcoin_testnet") {
-        // Bitcoin Testnet
         url = `https://mempool.space/testnet/api/tx/${txid}`;
     }
     // Check if it's Ethereum, Sepolia, or Arbitrum
     else if (chain === "ethereum" || chain === "ethereum_sepolia" || chain === "ethereum_arbitrum") {
         let alchemyApiKey = getAlchemyKey();
-        let apiUrl = `https:///eth-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;  // Default to Ethereum Mainnet
+        let apiUrl = `https:///eth-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
 
         if (chain === "ethereum_sepolia") {
-            apiUrl = `https://eth-sepolia.g.alchemy.com/v2/${alchemyApiKey}`; // Sepolia Network
+            apiUrl = `https://eth-sepolia.g.alchemy.com/v2/${alchemyApiKey}`;
         } else if (chain === "ethereum_arbitrum") {
-            apiUrl = `https://arb-mainnet.g.alchemy.com/v2/${alchemyApiKey}`; // Arbitrum Network - Using Alchemy's RPC endpoint
+            apiUrl = `https://arb-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
         }
 
-        // Ethereum (Mainnet, Sepolia, Arbitrum)
         url = apiUrl;
         const params = {
             jsonrpc: "2.0",
@@ -43,22 +53,23 @@ async function getBlockNumber(chain, asset, txid) {
         };
 
         try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(params),
-                agent: new require('https').Agent({ keepAlive: true }),
-            });
+            const response = await retryFetch(() =>
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(params),
+                    agent: new require('https').Agent({ keepAlive: true }),
+                })
+            );
 
             const data = await response.json();
             if (data.result) {
-                // console.log("Transaction Data:", data.result);
                 if (chain == "ethereum_arbitrum") {
-                    blockNumber = parseInt(data.result.l1BlockNumber, 16); // Convert hex to decimal
+                    blockNumber = parseInt(data.result.l1BlockNumber, 16);
                 } else {
-                    blockNumber = parseInt(data.result.blockNumber, 16); // Convert hex to decimal
+                    blockNumber = parseInt(data.result.blockNumber, 16);
                 }
                 return blockNumber;
             }
@@ -72,12 +83,13 @@ async function getBlockNumber(chain, asset, txid) {
     // Make the request to the appropriate endpoint (for Bitcoin)
     if (url && (chain === "bitcoin" || chain === "bitcoin_testnet")) {
         try {
-            const response = await fetch(url, {
-                agent: new require('https').Agent({ keepAlive: true }),
-            });
+            const response = await retryFetch(() =>
+                fetch(url, {
+                    agent: new require('https').Agent({ keepAlive: true }),
+                })
+            );
             const data = await response.json();
-            // console.log("Transaction Data:", data);
-            blockNumber = data.status.block_height; // Get the block number for Bitcoin
+            blockNumber = data.status.block_height;
             return blockNumber;
         } catch (error) {
             console.error("Chain:", chain, "Asset:", asset, "TxID:", txid);
@@ -86,10 +98,8 @@ async function getBlockNumber(chain, asset, txid) {
         }
     }
 
-    // Default case if no matching chain found
     console.error("Chain:", chain, "Asset:", asset, "TxID:", txid);
     return "Chain or asset not supported!";
-
 }
 
 module.exports = getBlockNumber;

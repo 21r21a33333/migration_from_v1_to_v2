@@ -24,9 +24,9 @@ const pgdb = knex({
         user: process.env.WRITE_DB_USER,
         password: process.env.WRITE_DB_PASS,
         database: process.env.WRITE_DB_NAME,
-        ssl: {
-            rejectUnauthorized: false,
-        },
+        // ssl: {
+        //     rejectUnauthorized: false,
+        // },
     },
     pool: {
         min: 2,
