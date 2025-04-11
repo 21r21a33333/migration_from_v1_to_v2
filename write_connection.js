@@ -30,7 +30,7 @@ const pgdb = knex({
     },
     pool: {
         min: 2,
-        max: 48,
+        max: 1500,
     },
 });
 
