@@ -8,6 +8,7 @@ const { write_last_migration_timestamp, get_last_migration_timestamp } = require
 const fs = require('fs');
 const { default: knex } = require('knex');
 const filePath = './migrated_orders.txt';
+const CorruptedOrderfilePath = './corrupted_orders.txt';
 
 async function MigrateDB() {
     let update_date = get_last_migration_timestamp();
@@ -35,7 +36,6 @@ async function MigrateDB() {
                 
                 WHERE o.updated_at >= '${update_date}'
                 order by o.id 
-                limit 1
                 `;
                 const orderResults = await trx.raw(getOrders);
                 console.log("ALL  orders from old db are fetched successfully: ");
@@ -64,6 +64,7 @@ async function MigrateDB() {
             ordersToInsert = [];
             matchedOrdersToInsert = [];
             orderIdsToWrite = [];
+            corruptedOrders = [];
             for (let i = 0; i < ordersBatch.length; i++) {
                 let insertData = processOrder(ordersBatch[i].order, ordersBatch[i].initiator_swap, ordersBatch[i].follower_swap);
 
@@ -79,6 +80,19 @@ async function MigrateDB() {
                     console.log("Skipping order with id: ", ordersBatch[i].order.id, " as it is not on mainnet chain");
                     continue;
                 }
+
+                if (isSwapCorrupted(initiator_swap) || isSwapCorrupted(follower_swap)) {
+                    console.log("Skipping order with id: ", ordersBatch[i].order.id, " as it is corrupted");
+                    corruptedOrders.push({
+                        orderId: ordersBatch[i].order.id,
+                        initiator_swap_id: initiator_swap.swap_id,
+                        follower_swap_id: follower_swap.swap_id,
+                        is_init_corrupted: isSwapCorrupted(initiator_swap),
+                        is_follower_corrupted: isSwapCorrupted(follower_swap)
+                    });
+                    continue;
+                }
+
                 matchedOrdersToInsert.push(matchedOrder);
                 ordersToInsert.push(createOrder);
                 swapsToInsert.push(initiator_swap);
@@ -104,10 +118,12 @@ async function MigrateDB() {
                 console.error("Error inserting orders into write db: ", error);
                 throw error;
             }
+            writeCorruptedToFile(corruptedOrders);
         }
+        
 
         console.log("Database migration completed successfully");
-
+        
 
     } catch (e) {
         console.log("Error migrating database: ", e);
@@ -128,6 +144,16 @@ function writeToFile(ordersToInsert) {
         }
     });
 }
+function writeCorruptedToFile(corruptedOrders) {
+    const data = corruptedOrders.map(order => JSON.stringify(order)).join('\n');
+    fs.appendFileSync(CorruptedOrderfilePath, data + '\n-', 'utf8', (err) => {
+        if (err) {
+            console.error("Error writing to file: ", err);
+        } else {
+            console.log("Data written to file: ", CorruptedOrderfilePath);
+        }
+    });
+}
 
 
 
@@ -137,6 +163,10 @@ function isMainNetChain(chain) {
         return false;
     }
     return true;
+}
+
+function isSwapCorrupted(swap) {
+    return swap.initiate_tx_hash != "" && swap.redeem_tx_hash == "" && swap.refund_tx_hash == "" 
 }
 
 function processOrder(order, initiator_swap, follower_swap) {
