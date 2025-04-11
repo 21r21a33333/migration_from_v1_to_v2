@@ -35,6 +35,7 @@ async function MigrateDB() {
                 
                 WHERE o.updated_at >= '${update_date}'
                 order by o.id 
+                limit 1
                 `;
                 const orderResults = await trx.raw(getOrders);
                 console.log("ALL  orders from old db are fetched successfully: ");
