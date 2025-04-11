@@ -9,6 +9,8 @@ const fs = require('fs');
 const { default: knex } = require('knex');
 const filePath = './migrated_orders.txt';
 const CorruptedOrderfilePath = './corrupted_orders.txt';
+const statsFilePath = './stats.txt';
+
 
 async function MigrateDB() {
     let update_date = get_last_migration_timestamp();
@@ -53,9 +55,13 @@ async function MigrateDB() {
         const batches = Math.ceil(current_orders.length / batchSize);
         console.log("Total batches: ", batches);
 
-
+        let stats=[]
+        
         // processing orders in batches
         for (let i = 0; i < batches; i++) {
+            corruptedOrderscount = 0;
+            migratedOrdersCount = 0;    
+            testNetOrdersCount = 0;
             console.log("Processing batch: ", i + 1, " of ", batches);
             let start = i * batchSize;
             let end = Math.min(start + batchSize, current_orders.length);
@@ -78,6 +84,7 @@ async function MigrateDB() {
 
                 if (!isMainNetChain(initiator_swap.chain) || !isMainNetChain(follower_swap.chain)) {
                     console.log("Skipping order with id: ", ordersBatch[i].order.id, " as it is not on mainnet chain");
+                    testNetOrdersCount++;
                     continue;
                 }
 
@@ -90,13 +97,16 @@ async function MigrateDB() {
                         is_init_corrupted: isSwapCorrupted(initiator_swap),
                         is_follower_corrupted: isSwapCorrupted(follower_swap)
                     });
+                    corruptedOrderscount++;
                     continue;
                 }
 
+                migratedOrdersCount++;
                 matchedOrdersToInsert.push(matchedOrder);
                 ordersToInsert.push(createOrder);
                 swapsToInsert.push(initiator_swap);
                 swapsToInsert.push(follower_swap);
+
             }
 
             // updating swaps in write db
@@ -119,12 +129,27 @@ async function MigrateDB() {
                 throw error;
             }
             writeCorruptedToFile(corruptedOrders);
+            stats.push({
+                batch: i + 1,
+                migratedOrdersCount: migratedOrdersCount,
+                testNetOrdersCount: testNetOrdersCount,
+                corruptedOrdersCount: corruptedOrderscount
+            });
         }
         
+        totalmigratedOrdersCount = stats.reduce((acc, curr) => acc + curr.migratedOrdersCount, 0);
+        totalTestNetOrdersCount = stats.reduce((acc, curr) => acc + curr.testNetOrdersCount, 0);
+        totalCorruptedOrdersCount = stats.reduce((acc, curr) => acc + curr.corruptedOrdersCount, 0);
 
+        stats.push({
+            batch: "Total",
+            migratedOrdersCount: totalmigratedOrdersCount,
+            testNetOrdersCount: totalTestNetOrdersCount,
+            corruptedOrdersCount: totalCorruptedOrdersCount
+        });
+
+        writeStatsToFile(stats);
         console.log("Database migration completed successfully");
-        
-
     } catch (e) {
         console.log("Error migrating database: ", e);
     }
@@ -155,6 +180,16 @@ function writeCorruptedToFile(corruptedOrders) {
     });
 }
 
+function writeStatsToFile(stats) {
+    const data = stats.map(stats => JSON.stringify(stats)).join('\n');
+    fs.appendFileSync(statsFilePath, data + '\n-', 'utf8', (err) => {
+        if (err) {
+            console.error("Error writing to file: ", err);
+        } else {
+            console.log("Data written to file: ", statsFilePath);
+        }
+    });
+}
 
 
 function isMainNetChain(chain) {
