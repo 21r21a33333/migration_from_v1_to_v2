@@ -14,22 +14,25 @@ function getLatestChainName(oldChainName) {
     }
     return oldChainName; // return the original name if not found in the map
 }
+function getAmountIfFilled(redeem_tx_hash, amount) {
+    (redeem_tx_hash) ? amount : 0; // return 0 if redeem_tx_hash is not available
+}
 
-async function getNewSwapObject(old) {
+async function getNewSwapObject(old,secret_hash) {
 
     let newSwaps = {
         created_at: old.created_at || null, // ensure null for empty or invalid dates
         updated_at: old.updated_at || null,
         deleted_at: old.deleted_at || null,
-        swap_id: old.id || null, // ensure null if id is not available
+        swap_id: old.on_chain_identifier || "", // ensure null if id is not available
         chain: getLatestChainName(old.chain) || "", // empty string for chain if undefined
         asset: old.asset || "", // empty string for asset if undefined
         initiator: old.initiator_address || "", // empty string for initiator if undefined
         redeemer: old.redeemer_address || "", // empty string for redeemer if undefined
         timelock: old.timelock || 0, // default to 0 if not defined
         amount: old.amount || 0, // default to 0 if not defined
-        filled_amount: old.filled_amount || 0, // default to 0 if not defined
-        secret_hash: old.secret_hash || "", // empty string if not defined
+        filled_amount: old.filled_amount|| getAmountIfFilled(old.redeem_tx_hash,old.amount) || 0, // default to 0 if not defined
+        secret_hash: secret_hash || "", // empty string if not defined
         secret: old.secret || "", // empty string if not defined
         initiate_tx_hash: old.initiate_tx_hash || "", // empty string if not defined
         redeem_tx_hash: old.redeem_tx_hash || "", // empty string if not defined
@@ -37,7 +40,6 @@ async function getNewSwapObject(old) {
         initiate_block_number: old.initiate_block_number || 0, // default to 0 if not defined
         required_confirmations: old.minimum_confirmations || 0,// default to 0 if not defined
         current_confirmations: old.current_confirmations || 0, // default to 0 if not defined
-        
     };
 
     // Assign redeem and refund block numbers if the respective transaction hashes are available
@@ -64,6 +66,7 @@ function getUserIdFrom(initiator_source_address, initiator_destination_address) 
 }
 
 
+
 function getNewOrderObject(old, initiator_source_address, initiator_destination_address, source_amount, destination_amount, minimum_confirmations, timelock, input_token_price, output_token_price) {
 
     // console.log("Order Object: ", old);
@@ -74,6 +77,12 @@ function getNewOrderObject(old, initiator_source_address, initiator_destination_
 
     let destinationchain = orderpairs[1].split(':')[0];
     let destinationasset = (orderpairs[1].split(':')[1]) ? orderpairs[1].split(':')[1] : "primary";
+    let bitcoin_optional_recipient = old.user_btc_wallet_address || ""; // Default to empty string if undefined
+    additional_data = JSON.stringify({ "input_token_price": input_token_price, "output_token_price": output_token_price}); // Default to empty string if undefined
+    if (bitcoin_optional_recipient) {
+        additional_data = JSON.stringify({ "bitcoin_optional_recipient": bitcoin_optional_recipient ,"input_token_price": input_token_price, "output_token_price": output_token_price});
+    } 
+    
     let newOrder = {
         created_at: old.created_at || null, // Handle empty or invalid date values
         updated_at: old.updated_at || null,
@@ -98,7 +107,8 @@ function getNewOrderObject(old, initiator_source_address, initiator_destination_
         timelock: timelock || 0, // Default to 0 if undefined
 
         secret_hash: old.secret_hash || "", // Empty string if undefined
-        additional_data: JSON.stringify({ "input_token_price": input_token_price, "output_token_price": output_token_price }) || "{}", // Empty string if undefined
+
+        additional_data: additional_data || "{}", // Empty string if undefined
         user_id: getUserIdFrom(initiator_source_address,initiator_destination_address) || "", // Empty string if undefined
     };
 
@@ -157,3 +167,8 @@ function get_last_migration_timestamp(current_migration_timestamp) {
 
 
 module.exports = { getNewSwapObject, getNewOrderObject, getNewMatchedOrder, write_last_migration_timestamp, get_last_migration_timestamp };
+
+
+
+
+// CHECK : FEE ,

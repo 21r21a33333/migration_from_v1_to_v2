@@ -23,10 +23,14 @@ async function processOrder(order, trx, read_client) {
         intitiator_swap = intitiator_swap.rows[0];
         follower_swap = follower_swap.rows[0];
 
+        console.log("order",order);
+        console.log("intitiator_swap",intitiator_swap);
+        console.log("follower_swap",follower_swap);
+
 
         // formating swaps for write db
-        let initiator_swap_for_write = await getNewSwapObject(intitiator_swap);
-        let follower_swap_for_write = await getNewSwapObject(follower_swap);
+        let initiator_swap_for_write = await getNewSwapObject(intitiator_swap,order.secret_hash);
+        let follower_swap_for_write = await getNewSwapObject(follower_swap,order.secret_hash);
 
         return [initiator_swap_for_write, follower_swap_for_write, intitiator_swap.initiator_address, follower_swap.redeemer_address, intitiator_swap.amount, follower_swap.amount, follower_swap.minimum_confirmations, intitiator_swap.timelock, intitiator_swap.price_by_oracle, follower_swap.price_by_oracle];
     });
@@ -91,6 +95,16 @@ async function processOrder(order, trx, read_client) {
         console.error("Error inserting matched order to write db: ", error);
         throw error;
     }
+
+
+
+
+    console.log("matched order",NewMatchedOrder);
+    console.log("order",newOrder);
+    console.log("initiator_swap_for_write",initiator_swap_for_write);
+    console.log("follower_swap_for_write",follower_swap_for_write);
+
+
 
 }
 
