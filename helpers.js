@@ -1,4 +1,3 @@
-const getBlockNumber = require('./get_block');
 const fs = require('fs');
 
 
@@ -18,7 +17,7 @@ function getAmountIfFilled(redeem_tx_hash, amount) {
     (redeem_tx_hash) ? amount : 0; // return 0 if redeem_tx_hash is not available
 }
 
-async function getNewSwapObject(old,secret_hash) {
+ function getNewSwapObject(old,secret_hash) {
 
     let newSwaps = {
         created_at: old.created_at || null, // ensure null for empty or invalid dates
@@ -43,11 +42,8 @@ async function getNewSwapObject(old,secret_hash) {
     };
 
     // Assign redeem and refund block numbers if the respective transaction hashes are available
-    newSwaps.redeem_block_number = newSwaps.redeem_tx_hash ? await getBlockNumber(newSwaps.chain, newSwaps.asset, newSwaps.redeem_tx_hash) : 0;
-    newSwaps.refund_block_number = newSwaps.refund_tx_hash ? await getBlockNumber(newSwaps.chain, newSwaps.asset, newSwaps.refund_tx_hash) : 0;
-
-    if (newSwaps.redeem_block_number == "Chain or asset not supported!") newSwaps.redeem_block_number = 0;
-    if (newSwaps.refund_block_number == "Chain or asset not supported!") newSwaps.refund_block_number = 0;
+    newSwaps.redeem_block_number = newSwaps.redeem_tx_hash ? old.initiate_block_number + old.minimum_confirmations + 1 : 0; // Default to 0 if not defined : 0;
+    newSwaps.refund_block_number = newSwaps.refund_tx_hash ? old.initiate_block_number + old.timelock + 1 : 0; // Default to 0 if not defined : 0;
 
     return newSwaps;
 }
@@ -168,7 +164,3 @@ function get_last_migration_timestamp(current_migration_timestamp) {
 
 module.exports = { getNewSwapObject, getNewOrderObject, getNewMatchedOrder, write_last_migration_timestamp, get_last_migration_timestamp };
 
-
-
-
-// CHECK : FEE ,

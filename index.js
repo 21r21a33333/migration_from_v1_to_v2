@@ -1,9 +1,17 @@
 const read_client = require('./read_connection'); //read client
 const write_client = require('./write_connection'); //write client
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
-const processOrder = require('./worker');
+const { getNewSwapObject, getNewOrderObject, getNewMatchedOrder } = require('./helpers');
 const { write_last_migration_timestamp, get_last_migration_timestamp } = require("./helpers")
 
+
+const fs = require('fs');
+const filePath = './migrated_orders.txt';
+const testnetfilePath = './testnet_orders.txt';
+
+
+
+            
 
 
 async function MigrateDB() {
@@ -20,9 +28,16 @@ async function MigrateDB() {
             try {
 
                 const getOrders = `
-                    select * from orders
-                    where updated_at >= '${update_date}'
-                    order by id desc
+                    SELECT
+                    to_jsonb(o) AS order,
+                    to_jsonb(initiator_swap) AS initiator_swap,
+                    to_jsonb(follower_swap) AS follower_swap
+                FROM orders o
+                LEFT JOIN atomic_swaps AS initiator_swap
+                    ON initiator_swap.id = o.initiator_atomic_swap_id
+                LEFT JOIN atomic_swaps AS follower_swap
+                    ON follower_swap.id = o.follower_atomic_swap_id
+                WHERE o.updated_at >= '${update_date}'
                 `;
                 const orderResults = await trx.raw(getOrders);
                 console.log("ALL  orders from old db are fetched successfully: ");
@@ -35,48 +50,68 @@ async function MigrateDB() {
         console.log("Current orders fetched successfully: ");
 
         console.log("Total orders fetched: ", current_orders.length);
-        // starting write transaction from here
-        await write_client.transaction(async trx => {
-            // await Promise.all(current_orders.map(order => processOrder(order)));
-            if (isMainThread) {
-                const numThreads = 6;
-                const ordersPerThread = Math.ceil(current_orders.length / numThreads);
-                const promises = [];
+        // batching orders for processing with 500 orders at a time and use insert into with all orders at once
+        const batchSize = 500;
+        const batches = Math.ceil(current_orders.length / batchSize);
+        console.log("Total batches: ", batches);
 
-                for (let i = 0; i < numThreads; i++) {
-                    const start = i * ordersPerThread;
-                    const end = start + ordersPerThread;
-                    const ordersChunk = current_orders.slice(start, end);
+        
+        // processing orders in batches
+        for (let i = 0; i < batches; i++) {
+            console.log("Processing batch: ", i + 1, " of ", batches);
+            let start = i * batchSize;
+            let end = Math.min(start + batchSize, current_orders.length);
+            let ordersBatch = current_orders.slice(start, end);
+            swapsToInsert = [];
+            ordersToInsert = [];
+            matchedOrdersToInsert = [];
+            testnetOrders = [];
+            for ( let i=0 ;i<ordersBatch.length;i++){
+                let insertData = processOrder(ordersBatch[i].order, ordersBatch[i].initiator_swap, ordersBatch[i].follower_swap);
+                
+                // destructuring the insertData object
+                let matchedOrder = insertData.newMatchedOrder;
+                let createOrder = insertData.newOrder;
+                let initiator_swap = insertData.initiator_swap_for_write;
+                let follower_swap = insertData.follower_swap_for_write;
 
-                    promises.push(new Promise((resolve, reject) => {
-                        const worker = new Worker(__filename, {
-                            workerData: { ordersChunk }
-                        });
-
-                        worker.on('message', resolve);
-                        worker.on('error', reject);
-                        worker.on('exit', (code) => {
-                            if (code !== 0) {
-                                reject(new Error(`Worker stopped with exit code ${code}`));
-                            }
-                        });
-                    }));
+                
+                if (!isMainNetChain(initiator_swap.chain) || !isMainNetChain(follower_swap.chain)) {
+                    console.log("Skipping order with id: ", ordersBatch[i].order.id, " as it is not on mainnet chain");
+                    testnetOrders.push(createOrder.create_id);
+                    continue;
                 }
-
-                await Promise.all(promises);
-            } else {
-                await write_client.transaction(async trx => {
-                    for (let order of workerData.ordersChunk) {
-                        await processOrder(order, trx, read_client);
-                    }
-                    parentPort.postMessage('done');
-                }).catch(error => {
-                    console.error("Error in worker transaction: ", error);
-                    parentPort.postMessage('error');
-                });
+                matchedOrdersToInsert.push(matchedOrder);
+                ordersToInsert.push(createOrder);
+                swapsToInsert.push(initiator_swap);
+                swapsToInsert.push(follower_swap);
             }
 
-        });
+            // updating swaps in write db
+            write_client.transaction(async trx => {
+                try {
+                    // inserting swaps into write db
+                    await trx("swaps").insert(swapsToInsert).onConflict('swap_id').ignore(); // merge on conflict
+
+                    // inserting orders into write db
+                    await trx("create_orders").insert(ordersToInsert).onConflict('create_id').ignore(); // merge on conflict
+
+                    // inserting matched orders into write db
+                    await trx("matched_orders").insert(matchedOrdersToInsert); // merge on conflict
+
+                    console.log("Batch ", i + 1, " processed successfully: ");
+                } catch (error) {
+                    console.error("Error inserting orders into write db: ", error);
+                    throw error;
+                }
+            }
+            );
+
+            // write the create_id to a file
+            writeToFile(ordersToInsert);
+            // write the testnet orders to a file
+            writeToTestNetOrder(testnetOrders);
+        }
 
         console.log("Database migration completed successfully");
 
@@ -85,10 +120,77 @@ async function MigrateDB() {
         console.log("Error migrating database: ", e);
     }
 
-    write_last_migration_timestamp(current_migration_timestamp);
+    // write_last_migration_timestamp(current_migration_timestamp);
 
 }
 
+
+function writeToFile(ordersToInsert){
+    const data = ordersToInsert.map(order => order.create_id).join('\n');
+    fs.appendFileSync(filePath, data + '\n', 'utf8', (err) => {
+                if (err) {
+                    console.error("Error writing to file: ", err);
+                } else {
+                    console.log("Data written to file: ", filePath);
+            }
+    });
+}
+
+
+function writeToTestNetOrder(ids){
+    const data = ids.join('\n');
+    fs.appendFileSync(testnetfilePath, data + '\n', 'utf8', (err) => {
+                if (err) {
+                    console.error("Error writing to file: ", err);
+                } else {
+                    console.log("Data written to file: ", filePath);
+            }
+    });
+}
+function isMainNetChain(chain) {
+    // if chain contains "testnet" or "sepolia"
+    if (chain.toLowerCase().includes("testnet") || chain.toLowerCase().includes("sepolia")) {
+        return false;
+    }
+    return true;
+}
+
+function processOrder(order, initiator_swap, follower_swap) {
+    console.log(" procecssing Order with order Id ----: ", order.id);
+    
+    // creating a transaction to get the source and destination swaps
+    let [initiator_swap_for_write, follower_swap_for_write, initiator_source_address, initiator_destination_address, source_amount, destination_amount, minimum_confirmations, timelock, input_token_price, output_token_price] = (() => {
+        // console.log("order",order);
+        // console.log("initiator_swap",initiator_swap);
+        // console.log("follower_swap",follower_swap);
+
+        // formating swaps for write db
+        let initiator_swap_for_write =  getNewSwapObject(initiator_swap,order.secret_hash);
+        let follower_swap_for_write =  getNewSwapObject(follower_swap,order.secret_hash);
+
+        return [initiator_swap_for_write, follower_swap_for_write, initiator_swap.initiator_address, follower_swap.redeemer_address, initiator_swap.amount, follower_swap.amount, follower_swap.minimum_confirmations, initiator_swap.timelock, initiator_swap.price_by_oracle, follower_swap.price_by_oracle];
+    })();
+
+    // formating order to write db  
+    let newOrder = getNewOrderObject(order, initiator_source_address, initiator_destination_address, source_amount, destination_amount, minimum_confirmations, timelock, input_token_price, output_token_price);
+
+
+    // getting matched order to be inserted
+    let NewMatchedOrder = getNewMatchedOrder(order, initiator_swap_for_write.swap_id, follower_swap_for_write.swap_id);
+    // console.log("Matched Order to be inserted: ", NewMatchedOrder);
+
+    
+    // console.log("matched order",NewMatchedOrder);
+    // console.log("order",newOrder);
+    // console.log("initiator_swap_for_write",initiator_swap_for_write);
+    // console.log("follower_swap_for_write",follower_swap_for_write);
+    return {
+        newMatchedOrder: NewMatchedOrder,
+        newOrder: newOrder,
+        initiator_swap_for_write: initiator_swap_for_write,
+        follower_swap_for_write: follower_swap_for_write
+    }
+}
 async function main() {
     try {
         await MigrateDB();
@@ -98,14 +200,3 @@ async function main() {
 }
 
 main();
-
-const interval = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
-
-setInterval(async () => {
-    try {
-        main();
-    } catch (e) {
-        console.log("Error during scheduled migration: ", e);
-    }
-}, interval);
-
